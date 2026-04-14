@@ -2,6 +2,17 @@ const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const User    = require('../models/userModel');
 const Company = require('../models/companyModel');
+const Role    = require('../models/roleModel');
+
+const fallbackPermissions = {
+  dashboard: true,
+  leads: true,
+  campaigns: true,
+  whatsapp: true,
+  settings: true,
+  userManagement: true,
+  configuration: true
+};
 
 // POST /api/auth/register
 // Creates a new company + admin user in one shot
@@ -22,6 +33,7 @@ const register = async (req, res) => {
     // 2. Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
+    const adminRole = await Role.findByKey('admin');
 
     // 3. Create admin user linked to company
     const user = await User.create({
@@ -30,7 +42,8 @@ const register = async (req, res) => {
       email,
       phone: phone || null,
       role: 'admin',
-      password: hashedPassword
+      password: hashedPassword,
+      permissions: adminRole?.permissions || fallbackPermissions
     });
 
     // 4. Sign JWT  — payload: { id, role, company_id }

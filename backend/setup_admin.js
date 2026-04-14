@@ -1,11 +1,21 @@
 const db = require('./config/db');
 const bcrypt = require('bcryptjs');
 
+const allPermissions = {
+  dashboard: true,
+  leads: true,
+  campaigns: true,
+  whatsapp: true,
+  settings: true,
+  userManagement: true,
+  configuration: true
+};
+
 async function setupAdmin() {
-  const email = 'admin@leadsphere.com';
-  const password = 'Admin123!';
-  const name = 'Super Admin';
-  const role = 'superadmin';
+const email = 'admin@leadsphere.com';
+const password = 'Admin123!';
+const name = 'Super Admin';
+const role = 'superadmin';
 
   try {
     console.log(`Setting up Super Admin: ${email}`);
@@ -17,8 +27,8 @@ async function setupAdmin() {
     if (existing.length === 0) {
       console.log('User does not exist, creating new Super Admin...');
       const { rows: newUser } = await db.query(
-        'INSERT INTO users (name, email, role, password) VALUES ($1, $2, $3, $4) RETURNING id',
-        [name, email, role, hashedPassword]
+        'INSERT INTO users (name, email, role, password, permissions) VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id',
+        [name, email, role, hashedPassword, JSON.stringify(allPermissions)]
       );
       
       // Make them their own admin_id for site root logic
@@ -27,8 +37,8 @@ async function setupAdmin() {
     } else {
       console.log('User already exists, updating role and resetting password...');
       await db.query(
-        'UPDATE users SET role = $1, password = $2, admin_id = id WHERE email = $3',
-        [role, hashedPassword, email]
+        'UPDATE users SET role = $1, password = $2, admin_id = id, permissions = $3::jsonb WHERE email = $4',
+        [role, hashedPassword, JSON.stringify(allPermissions), email]
       );
       console.log('SUCCESS: Super Admin account updated/reset.');
     }

@@ -1,20 +1,80 @@
 const User    = require('../models/userModel');
+const Role    = require('../models/roleModel');
 const bcrypt  = require('bcryptjs');
 const fs      = require('fs');
 const csv     = require('csv-parser');
 
-// Maps UI-friendly role names to DB values
-const mapRole = (role) => {
-  const map = {
-    'Admin':           'admin',
-    'Manager':         'manager',
+const normalizeRoleKey = async (role) => {
+  if (!role) return 'user';
+
+  const builtinMap = {
+    'Admin': 'admin',
+    'Manager': 'manager',
     'Sales Executive': 'user',
-    'admin':           'admin',
-    'manager':         'manager',
-    'user':            'user',
-    'super_admin':     'super_admin'
+    'Super Admin': 'superadmin',
+    'admin': 'admin',
+    'manager': 'manager',
+    'user': 'user',
+    'superadmin': 'superadmin',
+    'super_admin': 'superadmin'
   };
-  return map[role] || 'user';
+
+  if (builtinMap[role]) {
+    return builtinMap[role];
+  }
+
+  const exact = await Role.findByKey(role);
+  if (exact) return exact.key;
+
+  const byLabel = await Role.findByLabel(role);
+  if (byLabel) return byLabel.key;
+
+  return String(role)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+const resolvePermissionsForRole = async (roleKey, explicitPermissions) => {
+  if (explicitPermissions) return explicitPermissions;
+
+  const role = await Role.findByKey(roleKey);
+  if (role?.permissions) return role.permissions;
+
+  if (roleKey === 'superadmin' || roleKey === 'admin') {
+    return {
+      dashboard: true,
+      leads: true,
+      campaigns: true,
+      whatsapp: true,
+      settings: true,
+      userManagement: true,
+      configuration: true
+    };
+  }
+
+  if (roleKey === 'manager') {
+    return {
+      dashboard: true,
+      leads: true,
+      campaigns: true,
+      whatsapp: true,
+      settings: true,
+      userManagement: false,
+      configuration: true
+    };
+  }
+
+  return {
+    dashboard: true,
+    leads: true,
+    campaigns: true,
+    whatsapp: true,
+    settings: false,
+    userManagement: false,
+    configuration: false
+  };
 };
 
 // GET /api/users  — admin only
@@ -44,14 +104,17 @@ const createUser = async (req, res) => {
 
     const salt   = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(password, salt);
+    const dbRole = await normalizeRoleKey(role);
+    const permissions = await resolvePermissionsForRole(dbRole, req.body.permissions);
 
     const user = await User.create({
       company_id: req.user.company_id,
       name,
       email,
       phone: phone || null,
-      role: mapRole(role),
-      password: hashed
+      role: dbRole,
+      password: hashed,
+      permissions
     });
 
     const { password: _, ...userResponse } = user;
@@ -78,7 +141,7 @@ const importUsers = async (req, res) => {
           name:     row.name     || row.Name     || row.full_name,
           email:    row.email    || row.Email,
           phone:    row.phone    || row.Phone    || '',
-          role:     mapRole(row.role || row.Role || 'Sales Executive'),
+          role:     row.role || row.Role || 'Sales Executive',
           password: row.password || row.Password || 'Welcome123!'
         };
         if (cleaned.name && cleaned.email) results.push(cleaned);
@@ -90,13 +153,15 @@ const importUsers = async (req, res) => {
           try {
             const exists = await User.findByEmail(row.email);
             if (exists) continue;
+            const roleKey = await normalizeRoleKey(row.role);
             await User.create({
               company_id: req.user.company_id,
               name:       row.name,
               email:      row.email,
               phone:      row.phone,
-              role:       row.role,
-              password:   await bcrypt.hash(row.password, salt)
+              role:       roleKey,
+              password:   await bcrypt.hash(row.password, salt),
+              permissions: await resolvePermissionsForRole(roleKey, null)
             });
             count++;
           } catch (e) {
@@ -146,7 +211,10 @@ const updateUser = async (req, res) => {
     if (target.company_id !== req.user.company_id) return res.status(403).json({ message: 'Access denied' });
 
     const data = { ...req.body };
-    if (data.role) data.role = mapRole(data.role);
+    if (data.role) data.role = await normalizeRoleKey(data.role);
+    if (!data.permissions && data.role) {
+      data.permissions = await resolvePermissionsForRole(data.role, null);
+    }
 
     const updated = await User.update(req.params.id, data);
     res.json(updated);
