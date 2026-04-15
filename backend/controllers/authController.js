@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('crypto');
 const User = require('../models/userModel');
 const Company = require('../models/companyModel');
 const Role = require('../models/roleModel');
+const City = require('../models/cityModel');
 
 const fallbackPermissions = {
   dashboard: true,
@@ -17,7 +19,15 @@ const fallbackPermissions = {
 // POST /api/auth/register
 const register = async (req, res) => {
   try {
-    const { companyName, name, email, phone, password } = req.body;
+    const {
+      companyName,
+      name,
+      email,
+      phone,
+      password,
+      city_id,
+      role_id
+    } = req.body;
 
     if (!companyName || !name || !email || !password) {
       return res.status(400).json({ message: 'companyName, name, email and password are required' });
@@ -26,34 +36,86 @@ const register = async (req, res) => {
     const existing = await User.findByEmail(email);
     if (existing) return res.status(400).json({ message: 'Email already registered' });
 
-    const company = await Company.create({ name: companyName, email, phone });
-
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    const adminRole = await Role.findByName('company_admin') || await Role.findByName('admin');
+
+    const parsedRoleId = role_id === undefined || role_id === null || role_id === '' ? null : Number(role_id);
+    if (parsedRoleId !== null && Number.isNaN(parsedRoleId)) {
+      return res.status(400).json({ message: 'role_id must be a valid number' });
+    }
+
+    const parsedCityId = city_id === undefined || city_id === null || city_id === '' ? null : Number(city_id);
+    if (parsedCityId !== null && Number.isNaN(parsedCityId)) {
+      return res.status(400).json({ message: 'city_id must be a valid number' });
+    }
+
+    let assignedRole = null;
+    if (parsedRoleId) {
+      assignedRole = await Role.findById(parsedRoleId);
+    }
+
+    if (!assignedRole) {
+      assignedRole = await Role.findByName('company_admin') || await Role.findByName('admin');
+    }
+
+    if (!assignedRole) {
+      return res.status(400).json({ message: 'No valid role found. Seed roles first.' });
+    }
+
+    let assignedCityId = null;
+    if (parsedCityId) {
+      const foundCity = await City.findById(parsedCityId);
+      if (!foundCity) {
+        return res.status(400).json({ message: 'Invalid city_id. City not found.' });
+      }
+      assignedCityId = foundCity.id;
+    }
+
+    const company = await Company.create({
+      id: randomUUID(),
+      name: companyName,
+      email,
+      phone
+    });
 
     const user = await User.create({
       company_id: company.id,
       name,
       email,
       phone: phone || null,
-      role: adminRole?.name || 'company_admin',
-      role_id: adminRole?.id || null,
+      role_id: assignedRole?.id || null,
       password: hashedPassword,
-      permissions: adminRole?.permissions || fallbackPermissions,
+      permissions: assignedRole?.permissions || fallbackPermissions,
+      city_id: assignedCityId,
       status: true
     });
 
     const token = jwt.sign(
-      { id: user.id, role: user.role, company_id: company.id },
+      { id: user.id, role_id: user.role_id, company_id: company.id },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
-    res.status(201).json({ user, company, token });
-  } catch (err) {
-    console.error('Register error:', err.message);
-    res.status(500).send('Server Error');
+    return res.status(201).json({
+      message: 'Company and admin created successfully',
+      user,
+      company,
+      token
+    });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+    if (error.code === '23503') {
+      return res.status(400).json({ message: 'Invalid role_id or city_id reference' });
+    }
+    if (error.code === '22P02') {
+      return res.status(400).json({ message: 'Invalid input format for one or more fields' });
+    }
+    console.error('Register error:', error);
+    return res.status(500).json({
+      message: 'Server Error'
+    });
   }
 };
 
@@ -75,7 +137,7 @@ const login = async (req, res) => {
     await User.updateLastLogin(user.id);
 
     const token = jwt.sign(
-      { id: user.id, role: user.role, company_id: user.company_id },
+      { id: user.id, role_id: user.role_id, company_id: user.company_id },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );

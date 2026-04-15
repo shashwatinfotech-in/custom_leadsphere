@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const Role = require('../models/roleModel');
 
-const auth = (req, res, next) => {
+const auth = async (req, res, next) => {
   const authHeader = req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -11,6 +12,12 @@ const auth = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded.role && decoded.role_id) {
+      const role = await Role.findById(decoded.role_id);
+      if (role?.name) {
+        decoded.role = role.name;
+      }
+    }
     req.user = decoded;
     next();
   } catch (err) {

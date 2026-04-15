@@ -1,13 +1,24 @@
 const db = require('../config/db');
 
 const Company = {
-  create: async ({ name, email, phone }) => {
-    const query = `
+  create: async ({ id, name, email, phone }) => {
+    const query = id
+      ? `
+      INSERT INTO companies (id, name, email, phone)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `
+      : `
       INSERT INTO companies (name, email, phone)
       VALUES ($1, $2, $3)
       RETURNING *
     `;
-    const { rows } = await db.query(query, [name, email || null, phone || null]);
+
+    const values = id
+      ? [id, name, email || null, phone || null]
+      : [name, email || null, phone || null];
+
+    const { rows } = await db.query(query, values);
     return rows[0];
   },
 

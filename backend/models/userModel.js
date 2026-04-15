@@ -7,12 +7,12 @@ const buildSelect = () => `
     u.name,
     u.email,
     u.phone,
-    u.role,
     u.role_id,
-    COALESCE(r.name, u.role) AS role_name,
+    r.name AS role_name,
+    r.name AS role,
     u.status,
     u.status AS is_active,
-    u.permissions,
+    '{}'::jsonb AS permissions,
     u.last_login,
     u.city_id,
     c.name AS city_name,
@@ -35,7 +35,6 @@ const User = {
     name,
     email,
     phone,
-    role,
     role_id,
     password,
     permissions,
@@ -43,8 +42,8 @@ const User = {
     status = true
   }) => {
     const query = `
-      INSERT INTO users (company_id, name, email, phone, role, role_id, password, status, permissions, city_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+      INSERT INTO users (company_id, name, email, phone, role_id, password, status, city_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id
     `;
     const values = [
@@ -52,11 +51,9 @@ const User = {
       name,
       email,
       phone || null,
-      role || null,
       role_id || null,
       password,
       normalizeStatus(status) ?? true,
-      JSON.stringify(permissions || {}),
       city_id || null
     ];
 
@@ -72,12 +69,12 @@ const User = {
         u.name,
         u.email,
         u.phone,
-        u.role,
         u.role_id,
-        COALESCE(r.name, u.role) AS role_name,
+        r.name AS role_name,
+        r.name AS role,
         u.status,
         u.status AS is_active,
-        u.permissions,
+        '{}'::jsonb AS permissions,
         u.last_login,
         u.city_id,
         c.name AS city_name,
@@ -110,7 +107,7 @@ const User = {
       query += ` AND u.role_id = $${idx++}`;
       values.push(filters.role_id);
     } else if (filters.role) {
-      query += ` AND LOWER(COALESCE(r.name, u.role)) = LOWER($${idx++})`;
+      query += ` AND LOWER(r.name) = LOWER($${idx++})`;
       values.push(filters.role);
     }
 
@@ -134,7 +131,6 @@ const User = {
       name,
       email,
       phone,
-      role,
       role_id,
       status,
       is_active,
@@ -150,12 +146,10 @@ const User = {
       SET name = COALESCE($1, name),
           email = COALESCE($2, email),
           phone = COALESCE($3, phone),
-          role = COALESCE($4, role),
-          role_id = COALESCE($5, role_id),
-          status = COALESCE($6, status),
-          permissions = COALESCE($7::jsonb, permissions),
-          city_id = CASE WHEN $9 THEN $8 ELSE city_id END
-      WHERE id = $10
+          role_id = COALESCE($4, role_id),
+          status = COALESCE($5, status),
+          city_id = CASE WHEN $7 THEN $6 ELSE city_id END
+      WHERE id = $8
       RETURNING id
     `;
 
@@ -163,10 +157,8 @@ const User = {
       name,
       email,
       phone,
-      role || null,
       role_id || null,
       statusValue,
-      permissions !== undefined ? JSON.stringify(permissions) : null,
       city_id !== undefined ? city_id : null,
       Boolean(city_id_provided),
       id
