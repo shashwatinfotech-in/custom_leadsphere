@@ -2,35 +2,58 @@ const db = require('../config/db');
 
 const Lead = {
   create: async (leadData) => {
-    const { company_id, name, email, phone, company, source, status, assigned_to, created_by, notes } = leadData;
+    const {
+      company_id,
+      name,
+      email,
+      phone,
+      company,
+      source,
+      status,
+      assigned_to,
+      created_by,
+      notes,
+      city_id
+    } = leadData;
+
     const query = `
-      INSERT INTO leads (company_id, name, email, phone, company, source, status, assigned_to, created_by, notes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
+      INSERT INTO leads (company_id, name, email, phone, company, source, status, assigned_to, created_by, notes, city_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id
     `;
     const values = [
-      company_id, name, email || null, phone || null, company || null,
-      source || null, status || 'New', assigned_to || null, created_by, notes || null
+      company_id,
+      name,
+      email || null,
+      phone || null,
+      company || null,
+      source || null,
+      status || 'New',
+      assigned_to || null,
+      created_by,
+      notes || null,
+      city_id || null
     ];
     const { rows } = await db.query(query, values);
-    return rows[0];
+    return Lead.findById(rows[0].id);
   },
 
   findAll: async (filters = {}, userId, role, companyId) => {
     let query = `
       SELECT l.*,
              u1.name AS assigned_to_name,
-             u2.name AS created_by_name
+             u2.name AS created_by_name,
+             c.name AS city_name
       FROM leads l
       LEFT JOIN users u1 ON l.assigned_to = u1.id
-      LEFT JOIN users u2 ON l.created_by  = u2.id
+      LEFT JOIN users u2 ON l.created_by = u2.id
+      LEFT JOIN cities c ON l.city_id = c.id
       WHERE l.company_id = $1
     `;
     const values = [companyId];
     let idx = 2;
 
-    // role = 'user' → only own leads
-    if (role === 'user') {
+    if (String(role || '').toLowerCase() === 'user') {
       query += ` AND (l.assigned_to = $${idx} OR l.created_by = $${idx + 1})`;
       values.push(userId, userId);
       idx += 2;
@@ -48,6 +71,10 @@ const Lead = {
       query += ` AND l.assigned_to = $${idx++}`;
       values.push(filters.assigned_to);
     }
+    if (filters.city_id !== undefined && filters.city_id !== null && filters.city_id !== '') {
+      query += ` AND l.city_id = $${idx++}`;
+      values.push(filters.city_id);
+    }
 
     query += ' ORDER BY l.created_at DESC';
     const { rows } = await db.query(query, values);
@@ -58,16 +85,17 @@ const Lead = {
     const query = `
       SELECT l.*,
              u1.name AS assigned_to_name,
-             u2.name AS created_by_name
+             u2.name AS created_by_name,
+             c.name AS city_name
       FROM leads l
       LEFT JOIN users u1 ON l.assigned_to = u1.id
-      LEFT JOIN users u2 ON l.created_by  = u2.id
+      LEFT JOIN users u2 ON l.created_by = u2.id
+      LEFT JOIN cities c ON l.city_id = c.id
       WHERE l.id = $1
     `;
     const { rows } = await db.query(query, [id]);
     if (!rows[0]) return null;
 
-    // Fetch custom field values
     const cvQuery = `
       SELECT cf.field_name, cf.field_type, cv.value, cf.id AS field_id
       FROM lead_custom_values cv
@@ -80,25 +108,35 @@ const Lead = {
   },
 
   update: async (id, leadData) => {
-    const { name, email, phone, company, source, status, assigned_to, notes } = leadData;
+    const { name, email, phone, company, source, status, assigned_to, notes, city_id } = leadData;
     const query = `
       UPDATE leads
-      SET name        = COALESCE($1, name),
-          email       = COALESCE($2, email),
-          phone       = COALESCE($3, phone),
-          company     = COALESCE($4, company),
-          source      = COALESCE($5, source),
-          status      = COALESCE($6, status),
+      SET name = COALESCE($1, name),
+          email = COALESCE($2, email),
+          phone = COALESCE($3, phone),
+          company = COALESCE($4, company),
+          source = COALESCE($5, source),
+          status = COALESCE($6, status),
           assigned_to = $7,
-          notes       = COALESCE($8, notes),
-          updated_at  = NOW()
-      WHERE id = $9
-      RETURNING *
+          notes = COALESCE($8, notes),
+          city_id = COALESCE($9, city_id),
+          updated_at = NOW()
+      WHERE id = $10
+      RETURNING id
     `;
     const { rows } = await db.query(query, [
-      name, email, phone, company, source, status, assigned_to || null, notes, id
+      name,
+      email,
+      phone,
+      company,
+      source,
+      status,
+      assigned_to || null,
+      notes,
+      city_id !== undefined ? city_id : null,
+      id
     ]);
-    return rows[0];
+    return rows[0] ? Lead.findById(rows[0].id) : null;
   },
 
   delete: async (id) => {
@@ -132,7 +170,6 @@ const Lead = {
     }
   },
 
-  // Uses the new UNIQUE (lead_id, field_id) constraint → proper UPSERT
   setCustomValue: async (leadId, fieldId, value) => {
     const query = `
       INSERT INTO lead_custom_values (lead_id, field_id, value)

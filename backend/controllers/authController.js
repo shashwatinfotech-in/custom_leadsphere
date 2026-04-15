@@ -1,8 +1,8 @@
-const bcrypt  = require('bcryptjs');
-const jwt     = require('jsonwebtoken');
-const User    = require('../models/userModel');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/userModel');
 const Company = require('../models/companyModel');
-const Role    = require('../models/roleModel');
+const Role = require('../models/roleModel');
 
 const fallbackPermissions = {
   dashboard: true,
@@ -15,7 +15,6 @@ const fallbackPermissions = {
 };
 
 // POST /api/auth/register
-// Creates a new company + admin user in one shot
 const register = async (req, res) => {
   try {
     const { companyName, name, email, phone, password } = req.body;
@@ -27,26 +26,24 @@ const register = async (req, res) => {
     const existing = await User.findByEmail(email);
     if (existing) return res.status(400).json({ message: 'Email already registered' });
 
-    // 1. Create the company (tenant)
     const company = await Company.create({ name: companyName, email, phone });
 
-    // 2. Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    const adminRole = await Role.findByKey('admin');
+    const adminRole = await Role.findByName('company_admin') || await Role.findByName('admin');
 
-    // 3. Create admin user linked to company
     const user = await User.create({
       company_id: company.id,
       name,
       email,
       phone: phone || null,
-      role: 'admin',
+      role: adminRole?.name || 'company_admin',
+      role_id: adminRole?.id || null,
       password: hashedPassword,
-      permissions: adminRole?.permissions || fallbackPermissions
+      permissions: adminRole?.permissions || fallbackPermissions,
+      status: true
     });
 
-    // 4. Sign JWT  — payload: { id, role, company_id }
     const token = jwt.sign(
       { id: user.id, role: user.role, company_id: company.id },
       process.env.JWT_SECRET,
@@ -75,7 +72,6 @@ const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid Credentials' });
 
-    // Update last login timestamp
     await User.updateLastLogin(user.id);
 
     const token = jwt.sign(

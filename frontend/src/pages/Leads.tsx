@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { statusColors, LeadStatus } from "@/data/sampleData";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -25,20 +25,24 @@ export default function LeadsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editLead, setEditLead] = useState<any | null>(null);
-  const { selectedCity } = useCityContext();
+  const { cities, selectedCityId, setSelectedCityId, selectedCity } = useCityContext();
 
   useEffect(() => {
     fetchLeads();
-  }, [statusFilter]);
+  }, [statusFilter, selectedCityId]);
 
   const fetchLeads = async () => {
     setLoading(true);
     try {
-      const url = statusFilter === "all" ? "/leads" : `/leads?status=${statusFilter}`;
-      const data = await api(url);
-      setAllLeads(data);
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (selectedCityId !== "all") params.set("city_id", selectedCityId);
+      const query = params.toString();
+      const data = await api(`/leads${query ? `?${query}` : ""}`);
+      setAllLeads(data || []);
     } catch (err) {
       console.error(err);
+      toast.error("Failed to fetch leads");
     } finally {
       setLoading(false);
     }
@@ -48,29 +52,36 @@ export default function LeadsPage() {
     return allLeads.filter(l => {
       const company = l.company || l.companyName || "";
       const name = l.name || l.contactPerson || "";
-      const matchesSearch = !search ||
+      const leadCity = String(l.city_name || l.city || l.cityName || "").toLowerCase();
+      const selected = selectedCityId === "all" ? "" : String(cities.find(c => String(c.id) === selectedCityId)?.name || "").toLowerCase();
+      const matchesSearch =
+        !search ||
         company.toLowerCase().includes(search.toLowerCase()) ||
         name.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === "all" || l.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesCity = !selected || leadCity === selected;
+      return matchesSearch && matchesStatus && matchesCity;
     });
-  }, [search, statusFilter, allLeads]);
+  }, [search, statusFilter, allLeads, selectedCityId, cities]);
 
   const handleAddLead = () => fetchLeads();
   const handleImportLeads = () => fetchLeads();
-  
+
   const handleExport = async () => {
     try {
       const token = localStorage.getItem("token");
-      const url = statusFilter === "all" ? "/leads/export" : `/leads/export?status=${statusFilter}`;
-      const response = await fetch(`${import.meta.env.VITE_API_URL}${url}`, {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (selectedCityId !== "all") params.set("city_id", selectedCityId);
+      const query = params.toString();
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/leads/export${query ? `?${query}` : ""}`, {
         headers: {
-          "Authorization": `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (!response.ok) throw new Error("Export failed");
-      
+
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -109,10 +120,10 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input placeholder="Search by company, contact, city..." value={search} onChange={e => setSearch(e.target.value)} className="w-full h-9 rounded-md border border-input bg-transparent px-10 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50" />
+          <Input placeholder="Search by company, contact, city..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 h-9 text-sm" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[160px] h-9 text-sm">
@@ -122,6 +133,17 @@ export default function LeadsPage() {
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             {statuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={selectedCityId} onValueChange={setSelectedCityId}>
+          <SelectTrigger className="w-[180px] h-9 text-sm">
+            <SelectValue placeholder="City" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Cities</SelectItem>
+            {cities.filter(city => city.is_active).map(city => (
+              <SelectItem key={city.id} value={String(city.id)}>{city.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -137,6 +159,7 @@ export default function LeadsPage() {
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Company</TableHead>
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Contact</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider">City</TableHead>
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Source</TableHead>
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Status</TableHead>
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Actions</TableHead>
@@ -148,9 +171,14 @@ export default function LeadsPage() {
                   <TableCell onClick={() => setSelectedLead(lead)}>
                     <div><p className="font-medium text-sm">{lead.company || lead.name}</p></div>
                   </TableCell>
-                  <TableCell onClick={() => setSelectedLead(lead)}><div><p className="text-sm">{lead.name}</p><p className="text-xs text-muted-foreground">{lead.email}</p></div></TableCell>
+                  <TableCell onClick={() => setSelectedLead(lead)}>
+                    <div><p className="text-sm">{lead.name}</p><p className="text-xs text-muted-foreground">{lead.email}</p></div>
+                  </TableCell>
+                  <TableCell onClick={() => setSelectedLead(lead)} className="text-sm">{lead.city_name || "-"}</TableCell>
                   <TableCell onClick={() => setSelectedLead(lead)} className="text-sm">{lead.source}</TableCell>
-                  <TableCell onClick={() => setSelectedLead(lead)}><Badge variant="outline" className={cn("text-xs border font-medium", statusColors[lead.status] || "bg-slate-100")}>{lead.status}</Badge></TableCell>
+                  <TableCell onClick={() => setSelectedLead(lead)}>
+                    <Badge variant="outline" className={cn("text-xs border font-medium", statusColors[lead.status] || "bg-slate-100")}>{lead.status}</Badge>
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditLead(lead); setAddOpen(true); }}>
@@ -161,7 +189,7 @@ export default function LeadsPage() {
                 </TableRow>
               ))}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">No leads found matching your filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">No leads found matching your filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

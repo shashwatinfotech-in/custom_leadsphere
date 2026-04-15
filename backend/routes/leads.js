@@ -4,11 +4,11 @@ const {
   createLead, getLeads, getLeadById, updateLead, deleteLead,
   updateStatus, setCustomValue, exportLeads, getDashboardStats
 } = require('../controllers/leadController');
-const auth     = require('../middleware/auth');
+const authMiddleware = require('../middleware/authMiddleware');
 const validate = require('../middleware/validate');
 
 const router = express.Router();
-router.use(auth);
+router.use(authMiddleware);
 
 router.get('/stats',  getDashboardStats);
 router.get('/export', exportLeads);

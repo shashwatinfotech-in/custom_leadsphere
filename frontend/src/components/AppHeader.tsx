@@ -1,16 +1,22 @@
+import { useEffect } from "react";
 import { Bell, Search, Globe } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { users } from "@/data/sampleData";
-import { useCityContext, GLOBAL_CITIES } from "@/contexts/CityContext";
+import { useCityContext } from "@/contexts/CityContext";
 
 export default function AppHeader() {
   const userStr = localStorage.getItem("user");
   const compStr = localStorage.getItem("company");
   const currentUser = userStr ? JSON.parse(userStr) : { name: "Guest", role: "User" };
   const company = compStr ? JSON.parse(compStr) : { name: "LeadSphere" };
-  const { selectedCity, setSelectedCity } = useCityContext();
+  const { cities, selectedCityId, selectedCity, setSelectedCityId, refreshCities } = useCityContext();
+
+  useEffect(() => {
+    if (localStorage.getItem("token")) {
+      refreshCities();
+    }
+  }, [refreshCities]);
 
   return (
     <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-30">
@@ -21,13 +27,14 @@ export default function AppHeader() {
         </div>
         <div className="flex items-center gap-1.5">
           <Globe className="w-4 h-4 text-muted-foreground" />
-          <Select value={selectedCity} onValueChange={setSelectedCity}>
+          <Select value={selectedCityId} onValueChange={setSelectedCityId}>
             <SelectTrigger className="w-[160px] h-9 text-sm border-dashed">
-              <SelectValue />
+              <SelectValue placeholder="All Cities" />
             </SelectTrigger>
             <SelectContent>
-              {GLOBAL_CITIES.map(c => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
+              <SelectItem value="all">All Cities</SelectItem>
+              {cities.filter(city => city.is_active).map(c => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -46,7 +53,7 @@ export default function AppHeader() {
           </Avatar>
           <div className="hidden md:block">
             <p className="text-sm font-medium leading-none">{currentUser.name}</p>
-            <p className="text-xs text-muted-foreground">{currentUser.role} @ {company.name}</p>
+            <p className="text-xs text-muted-foreground">{currentUser.role} @ {company.name} {selectedCity !== "All Cities" ? ` - ${selectedCity}` : ""}</p>
           </div>
         </div>
       </div>

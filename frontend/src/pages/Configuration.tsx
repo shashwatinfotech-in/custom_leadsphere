@@ -1,16 +1,16 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, FileText, Loader2, Pencil } from "lucide-react";
+import { Plus, FileText, Loader2, Pencil, Trash2 } from "lucide-react";
 import AddCustomFieldDialog from "@/components/AddCustomFieldDialog";
 import AddLeadTemplateDialog from "@/components/AddLeadTemplateDialog";
-import AddRoleDialog from "@/components/AddRoleDialog";
+import Cities from "@/components/configuration/Cities";
+import Roles from "@/components/configuration/Roles";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import type { LeadTemplate, CustomField } from "@/data/customFieldsData";
-import type { RoleOption } from "@/components/AddUserDialog";
 
 const typeBadgeColors: Record<string, string> = {
   text: "bg-info/10 text-info border-info/20",
@@ -23,29 +23,24 @@ const typeBadgeColors: Record<string, string> = {
 export default function ConfigurationPage() {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [templates, setTemplates] = useState<LeadTemplate[]>([]);
-  const [roles, setRoles] = useState<RoleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-  const isSuperAdmin = String(currentUser.role || "").toLowerCase() === "superadmin";
-  
+  const canManageMasters = String(currentUser.role || "").toLowerCase() === "company_admin";
+
   const [addOpen, setAddOpen] = useState(false);
   const [editField, setEditField] = useState<CustomField | null>(null);
   const [tplOpen, setTplOpen] = useState(false);
   const [editTpl, setEditTpl] = useState<LeadTemplate | null>(null);
-  const [roleOpen, setRoleOpen] = useState(false);
-  const [editRole, setEditRole] = useState<RoleOption | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [fieldData, templateData, roleData] = await Promise.all([
+      const [fieldData, templateData] = await Promise.all([
         api("/custom-fields"),
         api("/lead-templates"),
-        api("/roles"),
       ]);
-      setFields(fieldData);
-      setTemplates(templateData);
-      setRoles(roleData);
+      setFields(fieldData || []);
+      setTemplates(templateData || []);
     } catch (err) {
       console.error(err);
       toast.error("Failed to fetch configuration");
@@ -60,38 +55,6 @@ export default function ConfigurationPage() {
 
   const handleSave = () => fetchData();
   const handleSaveTpl = () => fetchData();
-  const handleSaveRole = async (payload: { id?: string; key?: string; label: string; permissions: Record<string, boolean> }) => {
-    if (!isSuperAdmin) {
-      toast.error("Only super admins can manage roles");
-      return;
-    }
-
-    try {
-      if (payload.id) {
-        await api(`/roles/${payload.id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            label: payload.label,
-            permissions: payload.permissions,
-          }),
-        });
-      } else {
-        await api("/roles", {
-          method: "POST",
-          body: JSON.stringify({
-            label: payload.label,
-            permissions: payload.permissions,
-          }),
-        });
-      }
-      toast.success(payload.id ? "Role updated" : "Role created");
-      setRoleOpen(false);
-      setEditRole(null);
-      fetchData();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save role");
-    }
-  };
 
   const deleteField = async (id: string) => {
     if (!confirm("Are you sure?")) return;
@@ -99,7 +62,9 @@ export default function ConfigurationPage() {
       await api(`/custom-fields/${id}`, { method: "DELETE" });
       fetchData();
       toast.success("Field deleted");
-    } catch (err) { toast.error("Delete failed"); }
+    } catch (err) {
+      toast.error("Delete failed");
+    }
   };
 
   const deleteTpl = async (id: string) => {
@@ -108,17 +73,8 @@ export default function ConfigurationPage() {
       await api(`/lead-templates/${id}`, { method: "DELETE" });
       fetchData();
       toast.success("Template deleted");
-    } catch (err) { toast.error("Delete failed"); }
-  };
-
-  const deleteRole = async (id: string) => {
-    if (!confirm("Delete this role?")) return;
-    try {
-      await api(`/roles/${id}`, { method: "DELETE" });
-      toast.success("Role deleted");
-      fetchData();
-    } catch (err: any) {
-      toast.error(err.message || "Delete failed");
+    } catch (err) {
+      toast.error("Delete failed");
     }
   };
 
@@ -128,14 +84,15 @@ export default function ConfigurationPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Configuration</h1>
-        <p className="text-muted-foreground text-sm mt-1">Manage custom fields, lead templates, and role defaults</p>
+        <p className="text-muted-foreground text-sm mt-1">Manage custom fields, templates, cities, and roles</p>
       </div>
 
       <Tabs defaultValue="fields">
         <TabsList>
           <TabsTrigger value="fields">Custom Fields</TabsTrigger>
           <TabsTrigger value="templates">Lead Templates</TabsTrigger>
-          {isSuperAdmin && <TabsTrigger value="roles">Roles</TabsTrigger>}
+          {canManageMasters && <TabsTrigger value="cities">Cities</TabsTrigger>}
+          {canManageMasters && <TabsTrigger value="roles">Roles</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="fields">
@@ -216,68 +173,15 @@ export default function ConfigurationPage() {
           )}
         </TabsContent>
 
-        {isSuperAdmin && (
-          <TabsContent value="roles">
-            <div className="flex justify-end mb-3">
-              <Button size="sm" onClick={() => { setEditRole(null); setRoleOpen(true); }}>
-                <Plus className="w-4 h-4 mr-2" /> Add Role
-              </Button>
-            </div>
+        {canManageMasters && (
+          <TabsContent value="cities">
+            <Cities />
+          </TabsContent>
+        )}
 
-            <div className="glass-card rounded-xl overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider">Role</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider">Key</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider">Type</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {roles.map(role => (
-                    <TableRow key={role.key}>
-                      <TableCell className="font-medium text-sm">{role.label}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground font-mono">{role.key}</TableCell>
-                      <TableCell>
-                        <Badge variant={role.is_system ? "secondary" : "outline"} className="text-xs">
-                          {role.is_system ? "System" : "Custom"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => { setEditRole(role); setRoleOpen(true); }}
-                            disabled={role.is_system}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive"
-                            onClick={() => deleteRole(role.id || role.key)}
-                            disabled={role.is_system}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {roles.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
-                        No roles yet.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+        {canManageMasters && (
+          <TabsContent value="roles">
+            <Roles />
           </TabsContent>
         )}
       </Tabs>
@@ -295,14 +199,6 @@ export default function ConfigurationPage() {
         onSave={handleSaveTpl}
         editTemplate={editTpl}
       />
-      {isSuperAdmin && (
-        <AddRoleDialog
-          open={roleOpen}
-          onClose={() => { setRoleOpen(false); setEditRole(null); }}
-          onSave={handleSaveRole}
-          editRole={editRole}
-        />
-      )}
     </div>
   );
 }

@@ -1,62 +1,55 @@
 const Role = require('../models/roleModel');
 const db = require('../config/db');
 
-const defaultPermissionsByKey = {
-  superadmin: {
-    dashboard: true,
-    leads: true,
-    campaigns: true,
-    whatsapp: true,
-    settings: true,
-    userManagement: true,
-    configuration: true
-  },
-  admin: {
-    dashboard: true,
-    leads: true,
-    campaigns: true,
-    whatsapp: true,
-    settings: true,
-    userManagement: true,
-    configuration: true
-  },
-  manager: {
-    dashboard: true,
-    leads: true,
-    campaigns: true,
-    whatsapp: true,
-    settings: true,
-    userManagement: false,
-    configuration: true
-  },
-  user: {
-    dashboard: true,
-    leads: true,
-    campaigns: true,
-    whatsapp: true,
-    settings: false,
-    userManagement: false,
-    configuration: false
+const DEFAULT_PERMISSIONS = {
+  dashboard: true,
+  leads: true,
+  campaigns: true,
+  whatsapp: true,
+  settings: false,
+  userManagement: false,
+  configuration: false
+};
+
+const isCompanyAdmin = (req) => String(req.user?.role || '').toLowerCase() === 'company_admin';
+
+const normalizeName = (value) => String(value || '').trim();
+
+const normalizePermissions = (name, permissions) => {
+  if (permissions !== undefined && permissions !== null) return permissions;
+
+  const key = String(name || '').toLowerCase();
+  if (key === 'company_admin' || key === 'admin' || key === 'superadmin') {
+    return {
+      dashboard: true,
+      leads: true,
+      campaigns: true,
+      whatsapp: true,
+      settings: true,
+      userManagement: true,
+      configuration: true
+    };
   }
-};
 
-const slugifyKey = (value) => {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-};
+  if (key === 'manager') {
+    return {
+      dashboard: true,
+      leads: true,
+      campaigns: true,
+      whatsapp: true,
+      settings: true,
+      userManagement: false,
+      configuration: true
+    };
+  }
 
-const getDefaultPermissions = (key) => {
-  return defaultPermissionsByKey[key] || defaultPermissionsByKey.user;
+  return DEFAULT_PERMISSIONS;
 };
-
-const canManageRoles = (req) => req.user.role === 'superadmin';
 
 const getRoles = async (req, res) => {
   try {
-    const roles = await Role.findAll();
+    const includeInactive = String(req.query.include_inactive || req.query.includeInactive || 'true') !== 'false';
+    const roles = await Role.findAll({ includeInactive });
     res.json(roles);
   } catch (err) {
     console.error(err.message);
@@ -66,35 +59,31 @@ const getRoles = async (req, res) => {
 
 const createRole = async (req, res) => {
   try {
-    if (!canManageRoles(req)) {
-      return res.status(403).json({ message: 'Only super admins can create roles' });
+    if (!isCompanyAdmin(req)) {
+      return res.status(403).json({ message: 'Only company admins can manage roles' });
     }
 
-    const { label, permissions } = req.body;
-    if (!label) {
-      return res.status(400).json({ message: 'label is required' });
+    const name = normalizeName(req.body.name);
+    if (!name) {
+      return res.status(400).json({ message: 'name is required' });
     }
 
-    const key = slugifyKey(req.body.key || label);
-    if (!key) {
-      return res.status(400).json({ message: 'A valid role key could not be generated' });
-    }
-
-    const existing = await Role.findByKey(key);
+    const existing = await Role.findByName(name);
     if (existing) {
-      return res.status(400).json({ message: 'Role key already exists' });
+      return res.status(400).json({ message: 'Role already exists' });
     }
 
     const role = await Role.create({
-      key,
-      label,
-      permissions: permissions || getDefaultPermissions(key),
-      created_by: req.user.id,
-      is_system: false
+      name,
+      is_active: req.body.is_active === undefined ? true : String(req.body.is_active).toLowerCase() !== 'false',
+      permissions: normalizePermissions(name, req.body.permissions)
     });
 
     res.status(201).json(role);
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ message: 'Role already exists' });
+    }
     console.error(err.message);
     res.status(500).send('Server Error');
   }
@@ -102,8 +91,8 @@ const createRole = async (req, res) => {
 
 const updateRole = async (req, res) => {
   try {
-    if (!canManageRoles(req)) {
-      return res.status(403).json({ message: 'Only super admins can update roles' });
+    if (!isCompanyAdmin(req)) {
+      return res.status(403).json({ message: 'Only company admins can manage roles' });
     }
 
     const target = await Role.findById(req.params.id);
@@ -111,13 +100,27 @@ const updateRole = async (req, res) => {
       return res.status(404).json({ message: 'Role not found' });
     }
 
-    if (target.is_system) {
-      return res.status(400).json({ message: 'System roles cannot be modified' });
+    const updates = {};
+    if (req.body.name !== undefined) {
+      const name = normalizeName(req.body.name);
+      if (!name) {
+        return res.status(400).json({ message: 'name cannot be empty' });
+      }
+      updates.name = name;
+    }
+    if (req.body.is_active !== undefined) {
+      updates.is_active = String(req.body.is_active).toLowerCase() !== 'false';
+    }
+    if (req.body.permissions !== undefined) {
+      updates.permissions = req.body.permissions;
     }
 
-    const updated = await Role.update(req.params.id, req.body);
+    const updated = await Role.update(req.params.id, updates);
     res.json(updated);
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ message: 'Role already exists' });
+    }
     console.error(err.message);
     res.status(500).send('Server Error');
   }
@@ -125,8 +128,8 @@ const updateRole = async (req, res) => {
 
 const deleteRole = async (req, res) => {
   try {
-    if (!canManageRoles(req)) {
-      return res.status(403).json({ message: 'Only super admins can delete roles' });
+    if (!isCompanyAdmin(req)) {
+      return res.status(403).json({ message: 'Only company admins can manage roles' });
     }
 
     const target = await Role.findById(req.params.id);
@@ -134,16 +137,8 @@ const deleteRole = async (req, res) => {
       return res.status(404).json({ message: 'Role not found' });
     }
 
-    if (target.is_system) {
-      return res.status(400).json({ message: 'System roles cannot be deleted' });
-    }
-
-    const { rows } = await db.query(
-      'SELECT COUNT(*)::int AS count FROM users WHERE role = $1',
-      [target.key]
-    );
-
-    if (rows[0].count > 0) {
+    const usage = await db.query('SELECT COUNT(*)::int AS count FROM users WHERE role_id = $1', [req.params.id]);
+    if (usage.rows[0].count > 0) {
       return res.status(400).json({ message: 'Role is assigned to users and cannot be deleted' });
     }
 
@@ -155,4 +150,4 @@ const deleteRole = async (req, res) => {
   }
 };
 
-module.exports = { getRoles, createRole, updateRole, deleteRole, getDefaultPermissions, slugifyKey };
+module.exports = { getRoles, createRole, updateRole, deleteRole };

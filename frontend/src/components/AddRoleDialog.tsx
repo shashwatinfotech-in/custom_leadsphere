@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
-import type { RoleOption } from "@/components/AddUserDialog";
 
 type PermissionKey = "dashboard" | "leads" | "campaigns" | "whatsapp" | "settings" | "userManagement" | "configuration";
 
@@ -20,7 +20,7 @@ const modules: { key: PermissionKey; label: string }[] = [
   { key: "configuration", label: "Configuration" },
 ];
 
-const defaultPermissions = {
+const defaultPermissions: Record<PermissionKey, boolean> = {
   dashboard: true,
   leads: true,
   campaigns: true,
@@ -30,26 +30,37 @@ const defaultPermissions = {
   configuration: false,
 };
 
+export type RoleOption = {
+  id: string | number;
+  name: string;
+  is_active?: boolean;
+  permissions?: Record<string, boolean>;
+  created_at?: string;
+};
+
 interface AddRoleDialogProps {
   open: boolean;
   onClose: () => void;
-  onSave: (payload: { key?: string; label: string; permissions: Record<string, boolean>; id?: string }) => Promise<void> | void;
+  onSave: (payload: { id?: string | number; name: string; is_active: boolean; permissions: Record<string, boolean> }) => Promise<void> | void;
   editRole?: RoleOption | null;
 }
 
 export default function AddRoleDialog({ open, onClose, onSave, editRole }: AddRoleDialogProps) {
-  const [label, setLabel] = useState("");
+  const [name, setName] = useState("");
+  const [isActive, setIsActive] = useState(true);
   const [permissions, setPermissions] = useState<Record<string, boolean>>(defaultPermissions);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!editRole) {
-      setLabel("");
+      setName("");
+      setIsActive(true);
       setPermissions(defaultPermissions);
       return;
     }
 
-    setLabel(editRole.label || "");
+    setName(editRole.name || "");
+    setIsActive(editRole.is_active ?? true);
     setPermissions({
       ...defaultPermissions,
       ...(editRole.permissions || {}),
@@ -63,13 +74,13 @@ export default function AddRoleDialog({ open, onClose, onSave, editRole }: AddRo
   };
 
   const handleSave = async () => {
-    if (!label.trim()) return;
+    if (!name.trim()) return;
     setSaving(true);
     try {
       await onSave({
         id: editRole?.id,
-        key: editRole?.key,
-        label: label.trim(),
+        name: name.trim(),
+        is_active: isActive,
         permissions,
       });
     } finally {
@@ -86,19 +97,26 @@ export default function AddRoleDialog({ open, onClose, onSave, editRole }: AddRo
 
         <div className="grid gap-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="roleLabel">Role Name *</Label>
+            <Label htmlFor="roleName">Role Name *</Label>
             <Input
-              id="roleLabel"
-              value={label}
-              onChange={e => setLabel(e.target.value)}
+              id="roleName"
+              value={name}
+              onChange={e => setName(e.target.value)}
               placeholder="e.g. Account Executive"
-              disabled={isEdit && editRole?.is_system}
             />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div>
+              <Label className="text-sm font-medium">Active</Label>
+              <p className="text-xs text-muted-foreground">Inactive roles stay available for history but are hidden in filters.</p>
+            </div>
+            <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
 
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">
-              {isEdit ? "Editing role defaults" : "Default permissions"}
+              Default permissions
             </Badge>
           </div>
 
@@ -114,7 +132,7 @@ export default function AddRoleDialog({ open, onClose, onSave, editRole }: AddRo
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !label.trim()}>
+          <Button onClick={handleSave} disabled={saving || !name.trim()}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isEdit ? "Update Role" : "Create Role"}
           </Button>

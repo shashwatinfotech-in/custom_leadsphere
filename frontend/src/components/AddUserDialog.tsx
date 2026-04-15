@@ -1,19 +1,17 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useCityContext } from "@/contexts/CityContext";
+import UserForm from "@/components/users/UserForm";
 
 export interface RoleOption {
-  id?: string;
-  key: string;
-  label: string;
+  id: string | number;
+  name: string;
+  is_active?: boolean;
   permissions?: Record<string, boolean>;
-  is_system?: boolean;
 }
 
 interface AddUserDialogProps {
@@ -24,14 +22,19 @@ interface AddUserDialogProps {
 }
 
 export default function AddUserDialog({ open, onClose, onSave, roles }: AddUserDialogProps) {
+  const { cities } = useCityContext();
   const [form, setForm] = useState({
-    name: "", email: "", password: "", role: "",
+    name: "",
+    email: "",
+    password: "",
+    role_id: "",
+    city_id: "",
   });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (roles.length === 0) return;
-    setForm(prev => prev.role ? prev : { ...prev, role: roles[0].key });
+    setForm(prev => prev.role_id ? prev : { ...prev, role_id: String(roles.find(role => role.is_active !== false)?.id || roles[0].id) });
   }, [roles]);
 
   const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
@@ -41,17 +44,21 @@ export default function AddUserDialog({ open, onClose, onSave, roles }: AddUserD
       toast.error("Name, Email, and Password are required.");
       return;
     }
-    
+
     setLoading(true);
     try {
       await api("/users", {
         method: "POST",
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          ...form,
+          role_id: form.role_id || null,
+          city_id: form.city_id || null,
+        })
       });
-      
+
       toast.success(`${form.name} has been added.`);
       onSave();
-      setForm({ name: "", email: "", password: "", role: "Sales Executive" });
+      setForm({ name: "", email: "", password: "", role_id: String(roles[0]?.id || ""), city_id: "" });
       onClose();
     } catch (err: any) {
       toast.error(err.message || "Failed to create user");
@@ -66,29 +73,9 @@ export default function AddUserDialog({ open, onClose, onSave, roles }: AddUserD
         <DialogHeader>
           <DialogTitle>Add New User</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="userName">Full Name *</Label>
-            <Input id="userName" value={form.name} onChange={e => update("name", e.target.value)} placeholder="e.g. John Doe" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="userEmail">Email *</Label>
-            <Input id="userEmail" type="email" value={form.email} onChange={e => update("email", e.target.value)} placeholder="john@company.com" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="userPassword">Password *</Label>
-            <Input id="userPassword" type="password" value={form.password} onChange={e => update("password", e.target.value)} placeholder="Min 8 characters" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Role</Label>
-            <Select value={form.role} onValueChange={v => update("role", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {roles.map(r => <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+
+        <UserForm form={form} onChange={update} roles={roles} cities={cities} />
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
           <Button onClick={handleSave} disabled={loading}>

@@ -5,12 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import type { Lead, LeadStatus } from "@/data/sampleData";
+import type { LeadStatus } from "@/data/sampleData";
 import { users } from "@/data/sampleData";
 import { sampleCustomFields, sampleLeadTemplates, CustomField, LeadTemplateField } from "@/data/customFieldsData";
-import { GLOBAL_CITIES } from "@/contexts/CityContext";
+import { useCityContext } from "@/contexts/CityContext";
 import { FileText, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -26,10 +25,19 @@ interface AddLeadDialogProps {
 }
 
 export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLeadDialogProps) {
+  const { cities } = useCityContext();
   const [form, setForm] = useState({
-    companyName: "", contactPerson: "", email: "", phone: "",
-    industry: "", city: "", source: "", status: "New" as LeadStatus,
-    assignedTo: users[0]?.name || "", notes: "", tags: "",
+    companyName: "",
+    contactPerson: "",
+    email: "",
+    phone: "",
+    industry: "",
+    city_id: "",
+    source: "",
+    status: "New" as LeadStatus,
+    assignedTo: users[0]?.name || "",
+    notes: "",
+    tags: "",
   });
 
   useEffect(() => {
@@ -40,7 +48,7 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
         email: editLead.email || "",
         phone: editLead.phone || "",
         industry: editLead.industry || "",
-        city: editLead.city || "",
+        city_id: editLead.city_id ? String(editLead.city_id) : "",
         source: editLead.source || "",
         status: editLead.status || "New",
         assignedTo: editLead.assignedTo || "",
@@ -51,24 +59,31 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
       resetForm();
     }
   }, [editLead, open]);
+
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-
   const [activeTemplates, setActiveTemplates] = useState<any[]>([]);
   const [activeFields, setActiveFields] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const loadTemplates = async () => {
       try {
-        const data = await api("/lead-templates");
-        setActiveTemplates(data);
+        const [templateData, fieldData] = await Promise.all([
+          api("/lead-templates"),
+          api("/custom-fields"),
+        ]);
+        setActiveTemplates(templateData || sampleLeadTemplates);
+        setActiveFields(fieldData || sampleCustomFields);
       } catch (err) {
         console.error("Failed to load templates", err);
+        setActiveTemplates(sampleLeadTemplates);
+        setActiveFields(sampleCustomFields);
       }
     };
-    loadTemplates();
-  }, []);
+    if (open) loadTemplates();
+  }, [open]);
 
   const selectedTemplate = activeTemplates.find(t => t.id === selectedTemplateId);
 
@@ -77,9 +92,14 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
   const updateTemplateField = (fieldId: string, value: string) => setTemplateValues(prev => ({ ...prev, [fieldId]: value }));
 
   const handleTemplateChange = (tplId: string) => {
+    if (tplId === "none") {
+      setSelectedTemplateId("");
+      setTemplateValues({});
+      return;
+    }
+
     setSelectedTemplateId(tplId);
     setTemplateValues({});
-    // Pre-fill defaults
     const tpl = activeTemplates.find(t => t.id === tplId);
     if (tpl) {
       const defaults: Record<string, string> = {};
@@ -90,19 +110,17 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
     }
   };
 
-  const [loading, setLoading] = useState(false);
-
   const handleSave = async () => {
     if (!form.companyName.trim() || !form.contactPerson.trim() || !form.email.trim()) {
       toast({ title: "Missing fields", description: "Company, Contact Person, and Email are required.", variant: "destructive" });
       return;
     }
-    
+
     setLoading(true);
     try {
       const url = editLead ? `/leads/${editLead.id}` : "/leads";
       const method = editLead ? "PUT" : "POST";
-      
+
       await api(url, {
         method,
         body: JSON.stringify({
@@ -112,9 +130,11 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
           company: form.companyName.trim(),
           source: form.source,
           status: form.status,
+          notes: form.notes,
+          city_id: form.city_id || null,
         }),
       });
-      
+
       toast({ title: editLead ? "Lead updated" : "Lead created", description: `${form.companyName} has been saved.` });
       onSave();
       resetForm();
@@ -127,7 +147,19 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
   };
 
   const resetForm = () => {
-    setForm({ companyName: "", contactPerson: "", email: "", phone: "", industry: "", city: "", source: "", status: "New", assignedTo: users[0]?.name || "", notes: "", tags: "" });
+    setForm({
+      companyName: "",
+      contactPerson: "",
+      email: "",
+      phone: "",
+      industry: "",
+      city_id: "",
+      source: "",
+      status: "New",
+      assignedTo: users[0]?.name || "",
+      notes: "",
+      tags: "",
+    });
     setCustomValues({});
     setTemplateValues({});
     setSelectedTemplateId("");
@@ -154,7 +186,7 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
       );
     }
     if (field.type === "dependent_dropdown") {
-      const parentValue = field.parentFieldId === "cf-city" ? form.city : customValues[field.parentFieldId || ""];
+      const parentValue = field.parentFieldId === "cf-city" ? form.city_id : customValues[field.parentFieldId || ""];
       const opts = parentValue && field.dependentOptions ? field.dependentOptions[parentValue] || [] : [];
       return (
         <div key={field.id} className="space-y-1.5">
@@ -192,7 +224,7 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
     return null;
   };
 
-  const cities = GLOBAL_CITIES.filter(c => c !== "All Cities");
+  const cityOptions = cities.filter(city => city.is_active);
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -201,14 +233,13 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
           <DialogTitle>{editLead ? "Edit Lead" : "Add New Lead"}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-2">
-          {/* Template Selector */}
           {activeTemplates.length > 0 && (
             <div className="space-y-1.5 p-3 rounded-lg border-2 border-dashed border-primary/20 bg-primary/5">
               <div className="flex items-center gap-2 mb-1">
                 <FileText className="w-4 h-4 text-primary" />
                 <Label className="font-semibold text-sm">Lead Template</Label>
               </div>
-              <Select value={selectedTemplateId} onValueChange={handleTemplateChange}>
+              <Select value={selectedTemplateId || "none"} onValueChange={handleTemplateChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a template (optional)" />
                 </SelectTrigger>
@@ -227,7 +258,6 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
             </div>
           )}
 
-          {/* Core fields */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="companyName">Company Name *</Label>
@@ -257,10 +287,13 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>City</Label>
-              <Select value={form.city} onValueChange={v => { update("city", v); setCustomValues(prev => { const n = { ...prev }; activeFields.filter(f => f.type === "dependent_dropdown" && f.parentFieldId === "cf-city").forEach(f => delete n[f.id]); return n; }); }}>
+              <Label>Select City</Label>
+              <Select value={form.city_id || "none"} onValueChange={v => update("city_id", v)}>
                 <SelectTrigger><SelectValue placeholder="Select city" /></SelectTrigger>
-                <SelectContent>{cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  <SelectItem value="none">No City</SelectItem>
+                  {cityOptions.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
           </div>
@@ -294,7 +327,6 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
             </div>
           </div>
 
-          {/* Template Dynamic Fields */}
           {selectedTemplate && selectedTemplate.fields.length > 0 && (
             <>
               <div className="border-t pt-3 mt-1">
@@ -309,7 +341,6 @@ export default function AddLeadDialog({ open, onClose, onSave, editLead }: AddLe
             </>
           )}
 
-          {/* Custom Fields */}
           {activeFields.length > 0 && (
             <>
               <div className="border-t pt-3 mt-1">

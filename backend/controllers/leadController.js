@@ -1,8 +1,12 @@
 const Lead = require('../models/leadModel');
 
-// Helper: check if user can access this lead
+const canManageLeads = (role) => {
+  const normalized = String(role || '').toLowerCase();
+  return normalized === 'admin' || normalized === 'company_admin' || normalized === 'manager' || normalized === 'superadmin';
+};
+
 const canAccess = (user, lead) => {
-  if (user.role === 'admin' || user.role === 'manager') return true;
+  if (canManageLeads(user.role)) return true;
   return lead.created_by === user.id || lead.assigned_to === user.id;
 };
 
@@ -52,10 +56,9 @@ const updateLead = async (req, res) => {
     const existing = await Lead.findById(req.params.id);
     if (!existing) return res.status(404).json({ message: 'Lead not found' });
     if (existing.company_id !== req.user.company_id) return res.status(403).json({ message: 'Access denied' });
-    
-    // Only Admin can edit lead details/profile
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Employees can only update lead status, not edit details' });
+
+    if (!canManageLeads(req.user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     const lead = await Lead.update(req.params.id, req.body);
@@ -109,13 +112,13 @@ const setCustomValue = async (req, res) => {
 // GET /api/leads/export
 const exportLeads = async (req, res) => {
   try {
-    const leads  = await Lead.findAll(req.query, req.user.id, req.user.role, req.user.company_id);
-    const header = 'Name,Email,Phone,Company,Source,Status,Created At\n';
-    const body   = leads.map(l =>
-      `"${l.name || ''}","${l.email || ''}","${l.phone || ''}","${l.company || ''}","${l.source || ''}","${l.status || ''}","${l.created_at}"`
+    const leads = await Lead.findAll(req.query, req.user.id, req.user.role, req.user.company_id);
+    const header = 'Name,Email,Phone,Company,Source,City,Status,Created At\n';
+    const body = leads.map(l =>
+      `"${l.name || ''}","${l.email || ''}","${l.phone || ''}","${l.company || ''}","${l.source || ''}","${l.city_name || ''}","${l.status || ''}","${l.created_at}"`
     ).join('\n');
 
-    res.setHeader('Content-Type',        'text/csv');
+    res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=leads-${Date.now()}.csv`);
     res.status(200).send(header + body);
   } catch (err) {
@@ -127,28 +130,27 @@ const exportLeads = async (req, res) => {
 // GET /api/leads/stats
 const getDashboardStats = async (req, res) => {
   try {
-    const all      = await Lead.findAll({}, req.user.id, req.user.role, req.user.company_id);
-    const total    = all.length;
-    const won      = all.filter(l => l.status?.toLowerCase() === 'won').length;
-    const rate     = total > 0 ? ((won / total) * 100).toFixed(1) : '0.0';
+    const all = await Lead.findAll({}, req.user.id, req.user.role, req.user.company_id);
+    const total = all.length;
+    const won = all.filter(l => l.status?.toLowerCase() === 'won').length;
+    const rate = total > 0 ? ((won / total) * 100).toFixed(1) : '0.0';
 
-    // Status breakdown
     const byStatus = all.reduce((acc, l) => {
       acc[l.status] = (acc[l.status] || 0) + 1;
       return acc;
     }, {});
 
     res.json({
-      totalLeads:       total,
-      conversionRate:   parseFloat(rate),
-      wonLeads:         won,
+      totalLeads: total,
+      conversionRate: parseFloat(rate),
+      wonLeads: won,
       byStatus,
-      emailsSent:       0,
-      whatsappSent:     0,
+      emailsSent: 0,
+      whatsappSent: 0,
       totalLeadsChange: 0,
       conversionChange: 0,
-      emailsChange:     0,
-      whatsappChange:   0
+      emailsChange: 0,
+      whatsappChange: 0
     });
   } catch (err) {
     console.error(err.message);
@@ -157,6 +159,13 @@ const getDashboardStats = async (req, res) => {
 };
 
 module.exports = {
-  createLead, getLeads, getLeadById, updateLead, deleteLead,
-  updateStatus, setCustomValue, exportLeads, getDashboardStats
+  createLead,
+  getLeads,
+  getLeadById,
+  updateLead,
+  deleteLead,
+  updateStatus,
+  setCustomValue,
+  exportLeads,
+  getDashboardStats
 };

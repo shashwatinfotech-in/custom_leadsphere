@@ -22,7 +22,8 @@ app.use('/api/imports',        require('./routes/imports'));
 app.use('/api/lead-templates', require('./routes/leadTemplates'));
 app.use('/api/activities',     require('./routes/activities'));
 app.use('/api/users',          require('./routes/users'));
-app.use('/api/roles',          require('./routes/roles'));
+app.use('/api/roles',          require('./routes/roleRoutes'));
+app.use('/api/cities',         require('./routes/cityRoutes'));
 
 // Health check
 app.get('/', (req, res) => {

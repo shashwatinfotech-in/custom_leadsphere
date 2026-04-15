@@ -10,7 +10,7 @@ import LeadsPage from "./pages/Leads";
 import CampaignsPage from "./pages/Campaigns";
 import WhatsAppPage from "./pages/WhatsApp";
 import SettingsPage from "./pages/SettingsPage";
-import UserManagementPage from "./pages/UserManagement";
+import UsersPage from "./pages/Users";
 import ConfigurationPage from "./pages/Configuration";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/Login";
@@ -40,7 +40,7 @@ const App = () => (
               <Route path="/campaigns" element={<CampaignsPage />} />
               <Route path="/whatsapp" element={<WhatsAppPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/user-management" element={<UserManagementPage />} />
+              <Route path="/user-management" element={<UsersPage />} />
               <Route path="/configuration" element={<ConfigurationPage />} />
             </Route>
             

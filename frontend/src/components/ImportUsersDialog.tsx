@@ -10,9 +10,9 @@ interface ImportUsersDialogProps {
   onImport: () => void;
 }
 
-const CSV_TEMPLATE = `name,email,role,password
-"John Doe","john@company.com","Sales Executive","password123"
-"Jane Smith","jane@company.com","Manager","password456"`;
+const CSV_TEMPLATE = `name,email,role,password,city
+"John Doe","john@company.com","user","password123","Mumbai"
+"Jane Smith","jane@company.com","manager","password456","Delhi"`;
 
 function parseCSV(text: string): string[][] {
   return text.trim().split("\n").map(row => row.split(",").map(c => c.trim().replace(/^"|"$/g, "")));
@@ -54,7 +54,12 @@ export default function ImportUsersDialog({ open, onClose, onImport }: ImportUse
         const name = row[nameIdx]?.trim();
         const email = row[emailIdx]?.trim();
         if (!name || !email) { errs.push(`Row ${i + 2}: missing name/email`); return; }
-        parsed.push({ name, email, role: row[header.indexOf("role")] || "Sales Executive" });
+        parsed.push({
+          name,
+          email,
+          role: row[header.indexOf("role")] || "user",
+          city: row[header.indexOf("city")] || ""
+        });
       });
       setErrors(errs);
       setPreview(parsed);
@@ -137,10 +142,10 @@ export default function ImportUsersDialog({ open, onClose, onImport }: ImportUse
               <p className="font-medium mb-2">{preview.length} users ready to import</p>
               <div className="max-h-40 overflow-y-auto border rounded-lg">
                 <table className="w-full text-xs">
-                  <thead><tr className="border-b bg-muted/50"><th className="p-2 text-left">Name</th><th className="p-2 text-left">Email</th><th className="p-2 text-left">Role</th></tr></thead>
+                  <thead><tr className="border-b bg-muted/50"><th className="p-2 text-left">Name</th><th className="p-2 text-left">Email</th><th className="p-2 text-left">Role</th><th className="p-2 text-left">City</th></tr></thead>
                   <tbody>
                     {preview.slice(0, 10).map(u => (
-                      <tr key={u.id} className="border-b"><td className="p-2">{u.name}</td><td className="p-2">{u.email}</td><td className="p-2">{u.role}</td></tr>
+                      <tr key={u.id} className="border-b"><td className="p-2">{u.name}</td><td className="p-2">{u.email}</td><td className="p-2">{u.role}</td><td className="p-2">{u.city || "-"}</td></tr>
                     ))}
                   </tbody>
                 </table>
